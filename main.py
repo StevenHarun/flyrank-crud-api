@@ -1,5 +1,5 @@
 from typing import Optional, List
-from fastapi import FastAPI, Request, Response, status
+from fastapi import FastAPI, Request, Response, Query, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, field_validator
@@ -53,12 +53,20 @@ class TaskUpdate(BaseModel):
             raise ValueError("Title cannot be empty")
         return v.strip() if v is not None else None
 
-# In-memory storage with 3 initial example tasks
-tasks = [
+class StatsSchema(BaseModel):
+    total: int = Field(..., description="Total number of tasks", example=3)
+    done: int = Field(..., description="Number of completed tasks", example=1)
+    open: int = Field(..., description="Number of pending/open tasks", example=2)
+
+# Initial baseline dataset for seed & reset
+INITIAL_TASKS = [
     {"id": 1, "title": "Learn HTTP and REST basics", "done": True},
     {"id": 2, "title": "Build your first CRUD API", "done": False},
     {"id": 3, "title": "Publish project to GitHub", "done": False},
 ]
+
+# In-memory working storage
+tasks = [dict(t) for t in INITIAL_TASKS]
 
 @app.get(
     "/",
@@ -83,14 +91,50 @@ def get_health():
     return {"status": "ok"}
 
 @app.get(
+    "/stats",
+    summary="Task Statistics",
+    description="Returns calculated metrics: total, completed (done), and pending (open) tasks.",
+    response_model=StatsSchema,
+    tags=["Analytics"]
+)
+def get_stats():
+    total = len(tasks)
+    done_count = sum(1 for t in tasks if t["done"])
+    return {
+        "total": total,
+        "done": done_count,
+        "open": total - done_count
+    }
+
+@app.post(
+    "/reset",
+    summary="Reset and Seed Tasks",
+    description="Restores the in-memory task list to the initial 3 sample tasks.",
+    tags=["Administration"]
+)
+def reset_tasks():
+    global tasks
+    tasks = [dict(t) for t in INITIAL_TASKS]
+    return {"message": "Tasks successfully reset to initial seed data", "count": len(tasks)}
+
+@app.get(
     "/tasks",
     summary="List all tasks",
-    description="Retrieves the full in-memory list of tasks.",
+    description="Retrieves tasks with optional filtering by status (?done=true/false) and title keyword search (?search=keyword).",
     response_model=List[TaskSchema],
     tags=["Tasks"]
 )
-def get_tasks():
-    return tasks
+def get_tasks(
+    done: Optional[bool] = Query(None, description="Filter tasks by completion status (true/false)"),
+    search: Optional[str] = Query(None, description="Search tasks by title keyword (case-insensitive)")
+):
+    result = tasks
+    if done is not None:
+        result = [t for t in result if t["done"] == done]
+    if search:
+        search_lower = search.strip().lower()
+        result = [t for t in result if search_lower in t["title"].lower()]
+    return result
 
 @app.get(
     "/tasks/{task_id}",
@@ -157,7 +201,7 @@ async def update_task(task_id: int, request: Request):
 
     try:
         task_in = TaskUpdate(**raw_body)
-    except Exception as e:
+    except Exception:
         return JSONResponse(
             status_code=status.HTTP_400_BAD_REQUEST,
             content={"error": "Invalid request fields"}
