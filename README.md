@@ -21,7 +21,7 @@ This project is an in-memory To-Do list REST API developed following the 6-stage
 To clone, set up the virtual environment, install dependencies, and start the server:
 
 ```bash
-git clone <YOUR_REPO_URL> && cd W2 && python -m venv .venv && .\.venv\Scripts\activate && pip install -r requirements.txt && uvicorn main:app --reload --port 8000
+git clone https://github.com/StevenHarun/flyrank-crud-api.git && cd flyrank-crud-api && python -m venv .venv && .\.venv\Scripts\activate && pip install -r requirements.txt && uvicorn main:app --reload --port 8000
 ```
 
 *(On Linux / macOS, use `source .venv/bin/activate`)*
