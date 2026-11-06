@@ -205,3 +205,30 @@ Result:
    QC COMPLETED SUCCESSFULLY: 33/33 TESTS PASSED (100%)
 ============================================================
 ```
+
+---
+
+## 8. Bonus Stage 7: The AI Rematch (AI vs Me)
+
+In this stage, an AI model was prompted from memory to build the same CRUD API without copying the assignment document. The generated code is quarantined inside [`ai-version/main.py`](ai-version/main.py).
+
+### The Specification Prompt Used:
+> *"Create a REST API for a to-do list using Python and FastAPI with in-memory storage. Include endpoints for GET /, GET /health, GET /tasks, GET /tasks/{id}, POST /tasks, PUT /tasks/{id}, and DELETE /tasks/{id}. It should return 201 on creation, handle 404 when an ID doesn't exist, validate that tasks have titles, and enable Swagger UI."*
+
+### Concrete Differences Found:
+1. **Validation Status Codes (`422` vs `400`)**:
+   - *What happened*: When posting `{}` or invalid data, the AI's version returned `422 Unprocessable Entity` (FastAPI's default Pydantic behavior).
+   - *Our version*: Implemented a custom validation exception handler to strictly return `400 Bad Request` as required by the assignment and HTTP standards.
+2. **Error Payload Structure (`{"detail": "..."}` vs `{"error": "..."}`)**:
+   - *What happened*: The AI used `raise HTTPException(status_code=404, detail="Task not found")`, producing `{ "detail": "Task not found" }`.
+   - *Our version*: Specifically adhered to the required contract: `{ "error": "Task 99 not found" }`.
+3. **DELETE Behavior (`200 OK` vs `204 No Content`)**:
+   - *What happened*: The AI defaulted to returning status `200` with a JSON body `{"message": "Task deleted"}`.
+   - *Our version*: Returns true RESTful `204 No Content` with a completely empty body (0 bytes).
+4. **Whitespace Edge Cases**:
+   - *What happened*: The AI's `title: str` accepted empty strings `""` and whitespace `"   "`.
+   - *Our version*: Handled custom strip validation preventing blank tasks.
+
+### The Core Lesson:
+> *"An AI's output is exactly as good as your specification — and you could only judge it because you had built the thing yourself first."*
+
