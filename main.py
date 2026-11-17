@@ -1,14 +1,60 @@
 from typing import Optional, List
+from contextlib import asynccontextmanager
+from pathlib import Path
+import sqlite3
 from fastapi import FastAPI, Request, Response, Query, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, field_validator
 
+# SQLite Database configuration
+DB_FILE = Path(__file__).parent / "tasks.db"
+
+def get_db_connection():
+    conn = sqlite3.connect(DB_FILE)
+    conn.row_factory = sqlite3.Row
+    return conn
+
+def init_db():
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS tasks (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            title TEXT NOT NULL,
+            done INTEGER NOT NULL DEFAULT 0
+        )
+    """)
+    conn.commit()
+
+    # Seed three example tasks only if the table is currently empty
+    cursor.execute("SELECT COUNT(*) FROM tasks")
+    count = cursor.fetchone()[0]
+    if count == 0:
+        cursor.execute("BEGIN TRANSACTION")
+        initial_tasks = [
+            ("Learn HTTP and REST basics", 1),
+            ("Build your first CRUD API", 0),
+            ("Publish project to GitHub", 0)
+        ]
+        cursor.executemany("INSERT INTO tasks (title, done) VALUES (?, ?)", initial_tasks)
+        conn.commit()
+    conn.close()
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    init_db()
+    yield
+
 app = FastAPI(
     title="Task API",
-    description="A simple, fast, and robust in-memory To-Do Task CRUD API built with FastAPI.",
-    version="1.0"
+    description="A simple, fast, and robust To-Do Task CRUD API backed by SQLite.",
+    version="1.0",
+    lifespan=lifespan
 )
+
+# Run initialization at module load as well so tasks.db is available immediately
+init_db()
 
 # Custom validation exception handler to return 400 instead of 422
 @app.exception_handler(RequestValidationError)

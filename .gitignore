@@ -4,6 +4,15 @@ env/
 venv/
 ENV/
 
+# Database files (tasks.db should be created automatically on run, not tracked)
+tasks.db
+*.db
+*.sqlite
+*.sqlite3
+*.db-journal
+*.db-wal
+*.db-shm
+
 # Python cache & bytecode
 __pycache__/
 *.py[cod]
