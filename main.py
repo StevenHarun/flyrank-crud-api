@@ -163,10 +163,17 @@ def reset_tasks():
     tasks = [dict(t) for t in INITIAL_TASKS]
     return {"message": "Tasks successfully reset to initial seed data", "count": len(tasks)}
 
+def row_to_task(row: sqlite3.Row) -> dict:
+    return {
+        "id": row["id"],
+        "title": row["title"],
+        "done": bool(row["done"])
+    }
+
 @app.get(
     "/tasks",
     summary="List all tasks",
-    description="Retrieves tasks with optional filtering by status (?done=true/false) and title keyword search (?search=keyword).",
+    description="Retrieves tasks from SQLite database with optional filtering by status (?done=true/false) and title keyword search (?search=keyword).",
     response_model=List[TaskSchema],
     tags=["Tasks"]
 )
@@ -174,25 +181,41 @@ def get_tasks(
     done: Optional[bool] = Query(None, description="Filter tasks by completion status (true/false)"),
     search: Optional[str] = Query(None, description="Search tasks by title keyword (case-insensitive)")
 ):
-    result = tasks
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    query = "SELECT * FROM tasks"
+    params = []
+    conditions = []
     if done is not None:
-        result = [t for t in result if t["done"] == done]
+        conditions.append("done = ?")
+        params.append(1 if done else 0)
     if search:
-        search_lower = search.strip().lower()
-        result = [t for t in result if search_lower in t["title"].lower()]
-    return result
+        conditions.append("title LIKE ?")
+        params.append(f"%{search.strip()}%")
+
+    if conditions:
+        query += " WHERE " + " AND ".join(conditions)
+
+    cursor.execute(query, params)
+    rows = cursor.fetchall()
+    conn.close()
+    return [row_to_task(row) for row in rows]
 
 @app.get(
     "/tasks/{task_id}",
     summary="Get a single task by ID",
-    description="Retrieves details of a specific task by its numeric ID.",
+    description="Retrieves details of a specific task by its numeric ID from SQLite database.",
     response_model=TaskSchema,
     tags=["Tasks"]
 )
 def get_task(task_id: int):
-    for task in tasks:
-        if task["id"] == task_id:
-            return task
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM tasks WHERE id = ?", (task_id,))
+    row = cursor.fetchone()
+    conn.close()
+    if row:
+        return row_to_task(row)
     return JSONResponse(
         status_code=status.HTTP_404_NOT_FOUND,
         content={"error": f"Task {task_id} not found"}
