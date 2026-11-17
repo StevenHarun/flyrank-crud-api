@@ -131,6 +131,30 @@ r = client.post("/reset")
 check("Extras: POST /reset restores seed tasks back to 3 items",
       r.status_code == 200 and r.json().get("count") == 3)
 
+# --- SQLITE PERSISTENCE & DATABASE INTEGRITY TESTS ---
+from main import get_db_connection, init_db
+
+# 1. Test index creation
+conn = get_db_connection()
+idx_rows = conn.execute("SELECT name FROM sqlite_master WHERE type='index';").fetchall()
+idx_names = [i["name"] for i in idx_rows]
+conn.close()
+check("SQLite: idx_tasks_done index exists in database", "idx_tasks_done" in idx_names)
+check("SQLite: idx_tasks_title index exists in database", "idx_tasks_title" in idx_names)
+
+# 2. Test sorting
+r_asc = client.get("/tasks?sort=title_asc")
+check("SQLite Extras: GET /tasks?sort=title_asc correctly sorts alphabetically",
+      r_asc.status_code == 200 and r_asc.json()[0]["title"] <= r_asc.json()[1]["title"] <= r_asc.json()[2]["title"])
+
+# 3. Test persistence across multiple init_db() calls (simulating server restarts)
+init_db()
+init_db()
+init_db()
+r_after_restarts = client.get("/tasks")
+check("SQLite: Restarting multiple times does NOT duplicate seeds (count remains 3)",
+      r_after_restarts.status_code == 200 and len(r_after_restarts.json()) == 3)
+
 # Summary
 print(f"\n{BLUE}============================================================{RESET}")
 if tests_passed == tests_run:

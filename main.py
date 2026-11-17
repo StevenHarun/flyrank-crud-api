@@ -25,6 +25,8 @@ def init_db():
             done INTEGER NOT NULL DEFAULT 0
         )
     """)
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_tasks_done ON tasks(done)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_tasks_title ON tasks(title)")
     conn.commit()
 
     # Seed three example tasks only if the table is currently empty
@@ -185,13 +187,14 @@ def row_to_task(row: sqlite3.Row) -> dict:
 @app.get(
     "/tasks",
     summary="List all tasks",
-    description="Retrieves tasks from SQLite database with optional filtering by status (?done=true/false) and title keyword search (?search=keyword).",
+    description="Retrieves tasks from SQLite database with optional filtering by status (?done=true/false), search (?search=keyword), and sorting (?sort=title_asc).",
     response_model=List[TaskSchema],
     tags=["Tasks"]
 )
 def get_tasks(
     done: Optional[bool] = Query(None, description="Filter tasks by completion status (true/false)"),
-    search: Optional[str] = Query(None, description="Search tasks by title keyword (case-insensitive)")
+    search: Optional[str] = Query(None, description="Search tasks by title keyword (case-insensitive)"),
+    sort: Optional[str] = Query(None, description="Sort order: 'title_asc', 'title_desc', or default by id")
 ):
     conn = get_db_connection()
     cursor = conn.cursor()
@@ -207,6 +210,13 @@ def get_tasks(
 
     if conditions:
         query += " WHERE " + " AND ".join(conditions)
+
+    if sort == "title_asc":
+        query += " ORDER BY title ASC"
+    elif sort == "title_desc":
+        query += " ORDER BY title DESC"
+    else:
+        query += " ORDER BY id ASC"
 
     cursor.execute(query, params)
     rows = cursor.fetchall()
