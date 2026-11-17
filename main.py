@@ -104,15 +104,12 @@ class StatsSchema(BaseModel):
     done: int = Field(..., description="Number of completed tasks", example=1)
     open: int = Field(..., description="Number of pending/open tasks", example=2)
 
-# Initial baseline dataset for seed & reset
+# Baseline seed data definition
 INITIAL_TASKS = [
     {"id": 1, "title": "Learn HTTP and REST basics", "done": True},
     {"id": 2, "title": "Build your first CRUD API", "done": False},
     {"id": 3, "title": "Publish project to GitHub", "done": False},
 ]
-
-# In-memory working storage
-tasks = [dict(t) for t in INITIAL_TASKS]
 
 @app.get(
     "/",
@@ -139,13 +136,18 @@ def get_health():
 @app.get(
     "/stats",
     summary="Task Statistics",
-    description="Returns calculated metrics: total, completed (done), and pending (open) tasks.",
+    description="Returns calculated metrics: total, completed (done), and pending (open) tasks computed via SQL.",
     response_model=StatsSchema,
     tags=["Analytics"]
 )
 def get_stats():
-    total = len(tasks)
-    done_count = sum(1 for t in tasks if t["done"])
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT COUNT(*) FROM tasks")
+    total = cursor.fetchone()[0]
+    cursor.execute("SELECT COUNT(*) FROM tasks WHERE done = 1")
+    done_count = cursor.fetchone()[0]
+    conn.close()
     return {
         "total": total,
         "done": done_count,
@@ -155,13 +157,23 @@ def get_stats():
 @app.post(
     "/reset",
     summary="Reset and Seed Tasks",
-    description="Restores the in-memory task list to the initial 3 sample tasks.",
+    description="Restores the SQLite tasks table to the initial 3 sample tasks.",
     tags=["Administration"]
 )
 def reset_tasks():
-    global tasks
-    tasks = [dict(t) for t in INITIAL_TASKS]
-    return {"message": "Tasks successfully reset to initial seed data", "count": len(tasks)}
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM tasks")
+    cursor.execute("DELETE FROM sqlite_sequence WHERE name = 'tasks'")
+    initial_tasks = [
+        (t["title"], 1 if t["done"] else 0) for t in INITIAL_TASKS
+    ]
+    cursor.executemany("INSERT INTO tasks (title, done) VALUES (?, ?)", initial_tasks)
+    conn.commit()
+    cursor.execute("SELECT COUNT(*) FROM tasks")
+    count = cursor.fetchone()[0]
+    conn.close()
+    return {"message": "Tasks successfully reset to initial seed data", "count": count}
 
 def row_to_task(row: sqlite3.Row) -> dict:
     return {
@@ -247,13 +259,17 @@ def create_task(task_in: TaskCreate):
 @app.put(
     "/tasks/{task_id}",
     summary="Update an existing task",
-    description="Replaces a task's title and/or done status with the provided fields.",
+    description="Replaces a task's title and/or done status in SQLite database.",
     response_model=TaskSchema,
     tags=["Tasks"]
 )
 async def update_task(task_id: int, request: Request):
-    task = next((t for t in tasks if t["id"] == task_id), None)
-    if not task:
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM tasks WHERE id = ?", (task_id,))
+    row = cursor.fetchone()
+    if not row:
+        conn.close()
         return JSONResponse(
             status_code=status.HTTP_404_NOT_FOUND,
             content={"error": f"Task {task_id} not found"}
@@ -262,12 +278,14 @@ async def update_task(task_id: int, request: Request):
     try:
         raw_body = await request.json()
     except Exception:
+        conn.close()
         return JSONResponse(
             status_code=status.HTTP_400_BAD_REQUEST,
             content={"error": "Invalid JSON body"}
         )
 
     if not isinstance(raw_body, dict) or not raw_body:
+        conn.close()
         return JSONResponse(
             status_code=status.HTTP_400_BAD_REQUEST,
             content={"error": "Request body must contain 'title' and/or 'done'"}
@@ -276,39 +294,52 @@ async def update_task(task_id: int, request: Request):
     try:
         task_in = TaskUpdate(**raw_body)
     except Exception:
+        conn.close()
         return JSONResponse(
             status_code=status.HTTP_400_BAD_REQUEST,
             content={"error": "Invalid request fields"}
         )
 
     if task_in.title is None and task_in.done is None:
+        conn.close()
         return JSONResponse(
             status_code=status.HTTP_400_BAD_REQUEST,
             content={"error": "Request body must contain 'title' and/or 'done'"}
         )
 
-    if task_in.title is not None:
-        task["title"] = task_in.title
-    if task_in.done is not None:
-        task["done"] = task_in.done
+    new_title = task_in.title if task_in.title is not None else row["title"]
+    new_done = int(task_in.done) if task_in.done is not None else row["done"]
 
-    return task
+    cursor.execute("UPDATE tasks SET title = ?, done = ? WHERE id = ?", (new_title, new_done, task_id))
+    conn.commit()
+    conn.close()
+
+    return {
+        "id": task_id,
+        "title": new_title,
+        "done": bool(new_done)
+    }
 
 @app.delete(
     "/tasks/{task_id}",
     summary="Delete a task by ID",
-    description="Removes a task from the in-memory store. Returns 204 No Content on success.",
+    description="Removes a task from SQLite database. Returns 204 No Content on success.",
     status_code=status.HTTP_204_NO_CONTENT,
     tags=["Tasks"]
 )
 def delete_task(task_id: int):
-    global tasks
-    task = next((t for t in tasks if t["id"] == task_id), None)
-    if not task:
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM tasks WHERE id = ?", (task_id,))
+    row = cursor.fetchone()
+    if not row:
+        conn.close()
         return JSONResponse(
             status_code=status.HTTP_404_NOT_FOUND,
             content={"error": f"Task {task_id} not found"}
         )
 
-    tasks = [t for t in tasks if t["id"] != task_id]
+    cursor.execute("DELETE FROM tasks WHERE id = ?", (task_id,))
+    conn.commit()
+    conn.close()
     return Response(status_code=status.HTTP_204_NO_CONTENT)
