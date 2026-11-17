@@ -224,19 +224,24 @@ def get_task(task_id: int):
 @app.post(
     "/tasks",
     summary="Create a new task",
-    description="Creates a new task with an automatically generated ID and done=false.",
+    description="Creates a new task in SQLite database with an automatically generated ID and done=false.",
     status_code=status.HTTP_201_CREATED,
     response_model=TaskSchema,
     tags=["Tasks"]
 )
 def create_task(task_in: TaskCreate):
-    next_id = max([t["id"] for t in tasks], default=0) + 1
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("INSERT INTO tasks (title, done) VALUES (?, 0)", (task_in.title,))
+    conn.commit()
+    new_id = cursor.lastrowid
+    conn.close()
+
     new_task = {
-        "id": next_id,
+        "id": new_id,
         "title": task_in.title,
         "done": False
     }
-    tasks.append(new_task)
     return JSONResponse(status_code=status.HTTP_201_CREATED, content=new_task)
 
 @app.put(
