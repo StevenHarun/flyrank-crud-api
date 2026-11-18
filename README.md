@@ -83,6 +83,8 @@ CREATE INDEX IF NOT EXISTS idx_tasks_title ON tasks(title);
 ### DB Browser for SQLite Representation
 When opening `tasks.db` in **DB Browser for SQLite**:
 
+![DB Browser for SQLite Screenshot](db_browser.png)
+
 ```
 +----+------------------------------------+------+
 | id | title                              | done |
